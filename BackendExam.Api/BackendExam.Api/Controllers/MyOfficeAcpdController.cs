@@ -1,6 +1,8 @@
 ﻿using BackendExam.Api.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.SqlClient;
+using System.Text.Json;
 
 namespace BackendExam.Api.Controllers
 {
@@ -70,8 +72,12 @@ namespace BackendExam.Api.Controllers
             {
                 await _context.SaveChangesAsync();
             }
-            catch (DbUpdateConcurrencyException)
+            catch (DbUpdateConcurrencyException ex)
             {
+                // 將錯誤寫入 Log
+                var errorInfo = JsonSerializer.Serialize(new { Message = ex.Message, Id = id });
+                await LogErrorAsync("PutMyOffice_ACPD", errorInfo);
+
                 if (!MyOffice_ACPDExists(id))
                 {
                     return NotFound(); // 404
@@ -80,6 +86,13 @@ namespace BackendExam.Api.Controllers
                 {
                     throw;
                 }
+            }
+
+            catch (Exception ex)
+            {
+                var errorInfo = JsonSerializer.Serialize(new { Message = ex.Message, StackTrace = ex.StackTrace });
+                await LogErrorAsync("PutMyOffice_ACPD_UnexpectedError", errorInfo);
+                return StatusCode(500, "Internal server error");
             }
 
             return NoContent(); // 204
@@ -106,4 +119,27 @@ namespace BackendExam.Api.Controllers
             return _context.MyOffice_ACPD.Any(e => e.ACPD_SID == id);
         }
     }
-}
+
+    private async Task LogErrorAsync(string programName, string actionJson)
+        {
+            // 預存程序的 OUTPUT 參數
+            var outParam = new SqlParameter
+            {
+                ParameterName = "@_OutBox_ReturnValues",
+                SqlDbType = System.Data.SqlDbType.NVarChar,
+                Size = -1, // 對應 nvarchar(Max)
+                Direction = System.Data.ParameterDirection.Output
+            };
+
+            // 呼叫 usp_AddLog 預存程序
+            await _context.Database.ExecuteSqlRawAsync(
+                "EXEC [dbo].[usp_AddLog] @_InBox_ReadID, @_InBox_SPNAME, @_InBox_GroupID, @_InBox_ExProgram, @_InBox_ActionJSON, @_OutBox_ReturnValues OUTPUT",
+                new SqlParameter("@_InBox_ReadID", (byte)0), // tinyint 對應 byte
+                new SqlParameter("@_InBox_SPNAME", "MyOfficeAcpdController"),
+                new SqlParameter("@_InBox_GroupID", Guid.NewGuid()),
+                new SqlParameter("@_InBox_ExProgram", programName),
+                new SqlParameter("@_InBox_ActionJSON", actionJson),
+                outParam
+            );
+        }
+    }
