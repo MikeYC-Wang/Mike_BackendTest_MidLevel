@@ -44,7 +44,24 @@ namespace BackendExam.Api.Controllers
         {
             if (string.IsNullOrEmpty(myOffice_ACPD.ACPD_SID))
             {
-                myOffice_ACPD.ACPD_SID = Guid.NewGuid().ToString("N").Substring(0, 20).ToUpper();
+                // 設定預存程序的 OUTPUT 參數
+                var outSidParam = new SqlParameter
+                {
+                    ParameterName = "@ReturnSID",
+                    SqlDbType = System.Data.SqlDbType.NVarChar,
+                    Size = 20,
+                    Direction = System.Data.ParameterDirection.Output
+                };
+
+                // 傳入 TableName 並取得回傳的 SID
+                await _context.Database.ExecuteSqlRawAsync(
+                    "EXEC [dbo].[NEWSID] @TableName=@TableName, @ReturnSID=@ReturnSID OUTPUT",
+                    new SqlParameter("@TableName", "MyOffice_ACPD"),
+                    outSidParam
+                );
+
+                // 將資料庫產生的 SID 塞回 Model
+                myOffice_ACPD.ACPD_SID = outSidParam.Value.ToString();
             }
 
             myOffice_ACPD.ACPD_NowDateTime = DateTime.Now;
